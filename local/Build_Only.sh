@@ -23,12 +23,12 @@ ask() {
 # --- Interactive Inputs ---
 CPU=$(ask "Enter CPU branch (e.g., sm8650, sm8550, sm8475)" "sm8650")
 FEIL=$(ask "Enter phone model (e.g., oneplus_12, oneplus_11)" "oneplus_12")
-CPUD=$(ask "Enter processor codename (e.g., pineapple, kalama, waipio)" "pineapple")
 ANDROID_VERSION=$(ask "Enter kernel Android version (android14, android13, android12)" "android14")
 KERNEL_VERSION=$(ask "Enter kernel version (6.1, 5.15, 5.10)" "6.1")
 lz4kd=$(ask "Enable lz4kd? (6.1 uses lz4 + zstd if Off) (On/Off)" "Off")
 bbr=$(ask "Enable BBR congestion control algorithm? (On/Off)" "Off")
-proxy=$(ask "Add proxy performance optimization? (if MTK_CPU must be Off!)  (On/Off)" "On")
+bbg=$(ask "Enable Baseband-Guard? (On/Off)" "On")
+proxy=$(ask "Add proxy performance optimization? (if MTK CPU must be Off!)  (On/Off)" "On")
 
 # --- Display Configuration Summary ---
 clear
@@ -36,13 +36,14 @@ echo ""
 echo "================================================="
 echo "         Configuration Summary"
 echo "================================================="
-echo "Phone Model        : $FEIL"
-echo "CPU                : $CPU"
-echo "Android Version    : $ANDROID_VERSION"
-echo "Kernel Version     : $KERNEL_VERSION"
-echo "lz4kd Enabled      : $lz4kd"
-echo "BBR Enabled        : $bbr"
-echo "Proxy Opts Enabled : $proxy"
+echo "Phone Model            : $FEIL"
+echo "CPU                    : $CPU"
+echo "Android Version        : $ANDROID_VERSION"
+echo "Kernel Version         : $KERNEL_VERSION"
+echo "lz4kd Enabled          : $lz4kd"
+echo "BBR Enabled            : $bbr"
+echo "Baseband-Guard Enabled : $bbg"
+echo "Proxy Opts Enabled     : $proxy"
 echo "================================================="
 read -p "Press Enter to begin the build process..."
 clear
@@ -61,7 +62,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends 
   python3 git curl ccache libelf-dev \
   build-essential flex bison libssl-dev \
   libncurses-dev liblz4-tool zlib1g-dev \
-  libxml2-utils rsync unzip python3-pip
+  libxml2-utils rsync unzip python3-pip gawk
 clear
 echo "✅ All dependencies installed successfully."
 
@@ -127,12 +128,16 @@ sed -i '$s|echo "\$res"|echo "-$adv-oki-xiaoxiaow"|' kernel_platform/common/scri
 sed -i '$s|echo "\$res"|echo "-$adv-oki-xiaoxiaow"|' kernel_platform/msm-kernel/scripts/setlocalversion
 sed -i '$s|echo "\$res"|echo "-$adv-oki-xiaoxiaow"|' kernel_platform/external/dtc/scripts/setlocalversion
 echo "✅ Kernel source cloned and configured."
-cd ..
-# Back to $WORKSPACE
+
+if [ "$bbg" = "On" ]; then
+    set -e
+    cd kernel_platform/common
+    curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh -o setup.sh
+    bash setup.sh
+    cd ../..
+fi
 
 # --- Kernel Customization ---
-cd kernel_workspace
-
 # Set up Zram and other patches
 echo "🔧 Setting up SUSFS and applying patches..."
 git clone https://github.com/Xiaomichael/kernel_patches.git
@@ -180,7 +185,13 @@ cd ../..
 echo "⚙️ Configuring kernel build options (defconfig)..."
 DEFCONFIG_PATH="$WORKSPACE/kernel_workspace/kernel_platform/common/arch/arm64/configs/gki_defconfig"
 
-if [ "$KPM" = "On" ]; then echo "CONFIG_KPM=y" >> "$DEFCONFIG_PATH"; fi
+if [ "$bbg" == "On" ]; then
+  echo "📦 Enabling BBG..."
+  cat <<EOT >> "$DEFCONFIG_PATH"
+CONFIG_BBG=y
+CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,selinux,smack,tomoyo,apparmor,bpf,baseband_guard"
+EOT
+fi
 
 if [ "$bbr" = "On" ]; then
   echo "🌐 Enabling BBR..."
@@ -242,6 +253,8 @@ if [ "$KERNEL_VERSION" = "5.10" ] || [ "$KERNEL_VERSION" = "5.15" ]; then
   grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG_PATH" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG_PATH"
 fi
 
+echo "CONFIG_HEADERS_INSTALL=n" >> "$DEFCONFIG_PATH"
+
 sed -i 's/check_defconfig//' "$WORKSPACE/kernel_workspace/kernel_platform/common/build.config.gki"
 echo "✅ Kernel defconfig updated."
 cd ../..
@@ -255,7 +268,7 @@ cd "$WORKSPACE/kernel_workspace/kernel_platform/common"
 MAKE_CMD_COMMON="make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=\"ccache clang\" RUSTC=../../prebuilts/rust/linux-x86/1.73.0b/bin/rustc PAHOLE=../../prebuilts/kernel-build-tools/linux-x86/bin/pahole LD=ld.lld HOSTLD=ld.lld O=out gki_defconfig all"
 
 if [ "$KERNEL_VERSION" = "6.1" ]; then
-    export KBUILD_BUILD_TIMESTAMP="Wed Aug  6 13:29:27 UTC 2025"
+    export KBUILD_BUILD_TIMESTAMP="Fri Aug 29 08:51:19 UTC 2025"
     export KBUILD_BUILD_VERSION=1
     export PATH="$WORKSPACE/kernel_workspace/kernel_platform/prebuilts/clang/host/linux-x86/clang-r487747c/bin:$PATH"
     eval "$MAKE_CMD_COMMON KCFLAGS+=-O2"
@@ -313,6 +326,3 @@ fi
 
 echo "================================================="
 echo ""
-
-echo "📊 Displaying disk statistics:"
-df -h
