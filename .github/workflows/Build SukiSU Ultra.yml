@@ -257,11 +257,6 @@ jobs:
           
           ./sukisu_setup.bin
           rm -rf ./sukisu_setup.bin
-
-          cd ..
-          sed -i '$s|echo "\$res"|echo "-${{ github.event.inputs.ANDROID_VERSION }}-oki"|' kernel_platform/common/scripts/setlocalversion            
-          sed -i '$s|echo "\$res"|echo "-${{ github.event.inputs.ANDROID_VERSION }}-oki"|' kernel_platform/msm-kernel/scripts/setlocalversion
-          sed -i '$s|echo "\$res"|echo "-${{ github.event.inputs.ANDROID_VERSION }}-oki"|' kernel_platform/external/dtc/scripts/setlocalversion
           
           echo "✅ SukiSU Ultra配置完成"
           
